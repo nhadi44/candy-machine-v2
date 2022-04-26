@@ -15,6 +15,7 @@
   const txTimeout = 30000;
   const cluster = import.meta.env.VITE_APP_SOLANA_NETWORK?.toString();
   const apiUrl = import.meta.env.VITE_APP_API_URL?.toString();
+
   const secretKey = import.meta.env.VITE_APP_SECRET_KEY?.toString();
 
   $: date = new Date($candyMachineState?.state.goLiveDate?.toNumber() * 1000);
@@ -38,7 +39,7 @@
 
   let isMinting = false;
   let mintSuccessful = false;
-  let isWhiteListed = true;
+
   let { solana } = window as any;
   export let connection;
 
@@ -61,23 +62,6 @@
     }
   }
 
-  async function test() {
-    const res = await fetch(`${apiUrl}/whitelisted`);
-    $userState.walletPublicKey = await connectWallet(solana);
-    const json = await res.json();
-    console.log(
-      new Date($candyMachineState?.state.goLiveDate?.toNumber() * 1000)
-    );
-    for (let i = 0; i < json.length; i++) {
-      if (json[i].member === $userState.walletPublicKey) {
-        isMinting = false;
-        // isActive = true;
-      } else {
-        // isActive = false;
-      }
-    }
-  }
-
   async function mintWhitelisted() {
     try {
       $userState.walletPublicKey = await connectWallet(solana);
@@ -94,7 +78,6 @@
       if (!json.reserve) {
         throw new Error("User does not have enough tokens");
       }
-
       isMinting = true;
       if ($candyMachineState?.program && $userState.walletPublicKey) {
         const mint = web3.Keypair.generate();
@@ -116,7 +99,7 @@
           );
         }
         if (!status?.err) {
-          const to_send = (await json.reserve) - 1;
+          const to_send = await JSON.stringify({ reserve: json.reserve - 1 });
           await fetch(
             `${apiUrl}/whitelisted/update/${$userState.walletPublicKey}/${secretKey}`,
             {
@@ -124,8 +107,9 @@
               mode: "cors",
               headers: {
                 "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "true",
               },
-              body: to_send.toString(),
+              body: to_send,
             }
           );
           console.log("Success");
@@ -207,34 +191,33 @@
       window.open("https://phantom.app/", "_blank");
     }
   }
-
-  async function testPost() {
-    // const to_send = (await json.reserve) - 1;
+  let isWhiteListed = false;
+  let isMint = false;
+  const dateNew = new Date("28 Apr 2022 00:00:00 GMT");
+  async function getData() {
     $userState.walletPublicKey = await connectWallet(solana);
-    const data = await fetch(
-      `${apiUrl}/whitelisted/member/${$userState.walletPublicKey}`,
-      { method: "GET" }
-    );
-    const json = await data.json();
-    const to_send = json.reserve - 1;
-    const res = await fetch(
-      `${apiUrl}/whitelisted/update/${$userState.walletPublicKey}/${secretKey}`,
-      {
-        method: "PUT",
-        mode: "cors",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: to_send.toString(),
+    try {
+      const res = await fetch(
+        `${apiUrl}/whitelisted/member/${$userState.walletPublicKey?.toString()}`,
+        { method: "GET" }
+      );
+      const json = await res.json();
+      if (json.member && json.reserve) {
+        isWhiteListed = true;
+      } else if (json.reserve === 0) {
+        isWhiteListed = false;
+        console.log("No Tokens");
+      } else {
+        console.log("anda bukan whitelist");
       }
-      // { method: "GET" }
-    );
-    console.log(await res.json);
+    } catch (error) {
+      console.log(error);
+    }
   }
-
   onMount(() => {
     solana = (window as any).solana;
-    test();
+    getData();
+    console.log(dateNew);
   });
 </script>
 
@@ -259,10 +242,10 @@
     <button class=" btn-black" disabled={true}
       >Whitelist Presale Access Only</button
     >
-  {:else if !isActive && !whitelist?.presale}
+  {:else if !isActive && !whitelist?.presale && isWhiteListed}
     <!-- Mint is not active and not a presale -->
     <button class=" btn-black" disabled={true}
-      >Mint Live @ {date.toUTCString()}</button
+      >Mint Live @ {dateNew.toUTCString()}</button
     >
   {:else if $userState.userBalance < nftPrice()}
     <button
@@ -271,11 +254,31 @@
       >Insufficient Funds ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL required)</button
     >
     <div />
-    <!-- {:else if isWhiteListed}
+  {:else if !isWhiteListed}
+    {#if !isMint}
+      <button class=" btn-black" disabled={true}
+        >Mint Live @ {dateNew.toUTCString()}</button
+      >
+    {:else}
+      <button
+        class="px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
+        disabled={isMinting}
+        on:click={mint}
+      >
+        {#if isMinting}
+          <span>Minting ...</span>
+        {:else if mintSuccessful}
+          <span>Mint succesful! Mint another?</span>
+        {:else}
+          <span>Mint ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span>
+        {/if}
+      </button>
+    {/if}
+  {:else}
     <button
-      class=" px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
+      class="px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
       disabled={isMinting}
-      on:click={mint}
+      on:click={mintWhitelisted}
     >
       {#if isMinting}
         <span>Minting ...</span>
@@ -285,24 +288,7 @@
         <span
           >Whitelist Mint ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span
         >
-      {/if}
-    </button> -->
-  {:else}
-    <button
-      class=" px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
-      disabled={isMinting}
-      on:click={mintWhitelisted}
+      {/if}</button
     >
-      {#if isMinting}
-        <span>Minting ...</span>
-      {:else if mintSuccessful}
-        <span>Mint succesful! Mint another?</span>
-      {:else}
-        <span>Mint ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span>
-      {/if}
-    </button>
   {/if}
-  <button class="px-3 bg-red-500 text-white my-4" on:click={testPost}
-    >Test post</button
-  >
 </div>
