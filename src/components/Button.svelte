@@ -14,6 +14,8 @@
 
   const txTimeout = 30000;
   const cluster = import.meta.env.VITE_APP_SOLANA_NETWORK?.toString();
+  const apiUrl = import.meta.env.VITE_APP_API_URL?.toString();
+  const secretKey = import.meta.env.VITE_APP_SECRET_KEY?.toString();
 
   $: date = new Date($candyMachineState?.state.goLiveDate?.toNumber() * 1000);
   $: whitelistPrice =
@@ -36,6 +38,7 @@
 
   let isMinting = false;
   let mintSuccessful = false;
+  let isWhiteListed = true;
   let { solana } = window as any;
   export let connection;
 
@@ -55,6 +58,86 @@
           $candyMachineState.state.whitelistMintSettings?.mint
         );
       }
+    }
+  }
+
+  async function test() {
+    const res = await fetch(`${apiUrl}/whitelisted`);
+    $userState.walletPublicKey = await connectWallet(solana);
+    const json = await res.json();
+    console.log(
+      new Date($candyMachineState?.state.goLiveDate?.toNumber() * 1000)
+    );
+    for (let i = 0; i < json.length; i++) {
+      if (json[i].member === $userState.walletPublicKey) {
+        isMinting = false;
+        // isActive = true;
+      } else {
+        // isActive = false;
+      }
+    }
+  }
+
+  async function mintWhitelisted() {
+    try {
+      $userState.walletPublicKey = await connectWallet(solana);
+      const res = await fetch(
+        `${apiUrl}/whitelisted/member/${$userState.walletPublicKey}`,
+        { method: "GET" }
+      );
+      const json = await res.json();
+      console.log(json.reserve);
+      if (!json.member) {
+        throw new Error("User is not whitelisted");
+      }
+
+      if (!json.reserve) {
+        throw new Error("User does not have enough tokens");
+      }
+
+      isMinting = true;
+      if ($candyMachineState?.program && $userState.walletPublicKey) {
+        const mint = web3.Keypair.generate();
+        const mintTxId = (
+          await mintOneToken(
+            $candyMachineState,
+            new web3.PublicKey($userState.walletPublicKey),
+            mint
+          )
+        )[0];
+        let status: any = { err: true };
+        if (mintTxId) {
+          status = await awaitTransactionSignatureConfirmation(
+            mintTxId,
+            txTimeout,
+            connection,
+            "singleGossip",
+            true
+          );
+        }
+        if (!status?.err) {
+          const to_send = (await json.reserve) - 1;
+          await fetch(
+            `${apiUrl}/whitelisted/update/${$userState.walletPublicKey}/${secretKey}`,
+            {
+              method: "PUT",
+              mode: "cors",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: to_send.toString(),
+            }
+          );
+          console.log("Success");
+          displaySuccess(mint.publicKey);
+        } else {
+          console.error("An error occurred");
+        }
+      }
+    } catch (error: any) {
+      console.error("An error occurred ", error);
+    } finally {
+      isMinting = false;
     }
   }
 
@@ -125,8 +208,33 @@
     }
   }
 
+  async function testPost() {
+    // const to_send = (await json.reserve) - 1;
+    $userState.walletPublicKey = await connectWallet(solana);
+    const data = await fetch(
+      `${apiUrl}/whitelisted/member/${$userState.walletPublicKey}`,
+      { method: "GET" }
+    );
+    const json = await data.json();
+    const to_send = json.reserve - 1;
+    const res = await fetch(
+      `${apiUrl}/whitelisted/update/${$userState.walletPublicKey}/${secretKey}`,
+      {
+        method: "PUT",
+        mode: "cors",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: to_send.toString(),
+      }
+      // { method: "GET" }
+    );
+    console.log(await res.json);
+  }
+
   onMount(() => {
     solana = (window as any).solana;
+    test();
   });
 </script>
 
@@ -146,7 +254,7 @@
       class=" px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold "
       >Sold Out!</button
     >
-  {:else if !isActive && whitelist?.presale && !userWhitelisted}
+  {:else if !isActive && whitelist?.presale}
     <!-- Mint not active, presale enabled but user not whitelisted -->
     <button class=" btn-black" disabled={true}
       >Whitelist Presale Access Only</button
@@ -163,7 +271,7 @@
       >Insufficient Funds ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL required)</button
     >
     <div />
-  {:else}
+    <!-- {:else if isWhiteListed}
     <button
       class=" px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
       disabled={isMinting}
@@ -174,8 +282,27 @@
       {:else if mintSuccessful}
         <span>Mint succesful! Mint another?</span>
       {:else}
+        <span
+          >Whitelist Mint ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span
+        >
+      {/if}
+    </button> -->
+  {:else}
+    <button
+      class=" px-3 py-2 rounded-md  bg-sky-600  hover:bg-sky-700 text-white font-bold disabled:bg-gray-400"
+      disabled={isMinting}
+      on:click={mintWhitelisted}
+    >
+      {#if isMinting}
+        <span>Minting ...</span>
+      {:else if mintSuccessful}
+        <span>Mint succesful! Mint another?</span>
+      {:else}
         <span>Mint ({(nftPrice() / LAMPORTS_PER_SOL).toFixed(2)} SOL)</span>
       {/if}
     </button>
   {/if}
+  <button class="px-3 bg-red-500 text-white my-4" on:click={testPost}
+    >Test post</button
+  >
 </div>
