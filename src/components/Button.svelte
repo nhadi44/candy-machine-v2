@@ -192,7 +192,7 @@
     }
   }
   let isWhiteListed = false;
-  let isMint = false;
+  let isMint = true;
   const dateNew = new Date("28 Apr 2022 00:00:00 GMT");
   async function getData() {
     $userState.walletPublicKey = await connectWallet(solana);
